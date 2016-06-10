@@ -1,0 +1,177 @@
+---
+title: "Model selection"
+author: "Isaac Oduro"
+date: "June 9, 2016"
+output: html_document
+---
+
+THIS FILE IS ABOUT EXPLORING VARIOUS MODEL SELECTION TECHNIQUES
+==============================================================
+1. Best subset
+2. Forward stepwise 
+3. Backward stepwise (Not a huge fun of this due to it's inapplicability when p>n)
+4. Rigde regression  (good Linear regression with high parameter estimate variance)
+5. Lasso    (Good for feature seletion and problems with high para estimate variance)
+6. Principal Component analysis  (Primarily for feature reduction)
+
+**Note:  PCA, Lasso and Ridge regression are variant of linear model fitted differently**
+
+
+```{r}
+library(ISLR)
+data(Hitters)
+
+summary(Hitters)
+# remove all row with missing values
+Hitters<-na.omit(Hitters)
+attach(Hitters)
+with(Hitters,sum(is.na(Salary)))
+```
+Best subset regression
+======================
+```{r}
+library(leaps)
+reg.full<-regsubsets(Salary~., data=Hitters)
+reg.summary<-summary(reg.full)
+```
+Oh no! it only gave up to subsets of size 8, but we have 19 variables so let's 
+add one additional argument.
+
+```{r}
+reg.full<-regsubsets(Salary~., data=Hitters,nvmax = 19)
+reg.summary<-summary(reg.full)
+names(reg.summary)
+reg.summary$cp
+plot(reg.summary$cp,xlab="# of variables",ylab = "cp")
+which.min(reg.summary$cp)   # model with the smallest cp
+
+#plotting the various performance gauge estimates
+par(mfrow=c(2,2))
+plot(reg.summary$rsq,ylab = "rsq",xlab = "model",type = "b")
+points(reg.summary$cp,ylab = "rsq",xlab = "model",col=2, pch=19)
+plot(reg.summary$bic,ylab = "bic",xlab = "model",type="l",col=3,pch=19)
+plot(reg.summary$rss, ylab="rss", xlab="model",type="b",col=5)
+reg.summary$rss[which.min(reg.summary$rss)]
+reg.summary$rsq[which.max(reg.summary$rsq)]
+
+plot(reg.full, scale="Cp")
+reg.summary
+```
+Forward subset
+==============
+This model selection method starts out with the null model, that is the model with only the intercept and then it keeps adding the feature that gives the best R-squared or smallest RSS.
+
+```{r}
+regfit.fwd<-regsubsets(Salary~. ,nvmax=19,data = Hitters,method='forward')
+summary.fwd<-summary(regfit.fwd)
+plot(regfit.fwd,scale="Cp")
+names(regfit.fwd)
+names(summary.fwd)
+plot(summary.fwd$cp,xlab = "# of features",ylab = "cp")
+```
+
+Model selection using validation set
+=====================================
+```{r}
+set.seed(1)
+train<-sample(263,180,replace=F)
+X.train<-Hitters[train,]
+X.test<-Hitters[-train,]
+reg.fwd<-regsubsets(Salary~., data=X.train,method = "forward",nvmax=19)
+plot(reg.fwd, scale="Cp")
+plot(summary(reg.fwd)$cp,ylab = "cp",xlab = "# of features")
+which.min(summary(reg.fwd)$cp)
+
+```
+So now that we have 19 models to select from, we use the validation approach (In practice use cross validation!!!) to select the model with the least test error.
+
+```{r}
+error<-rep(NA,19)
+X.test<-model.matrix(Salary~. ,data =Hitters[-train,])
+t=1:19
+for(i in t){
+     coefi<-coef(reg.fwd,id=i)
+     pred<-X.test[,names(coefi)]%*%coefi
+     error[i]<-mean((Hitters$Salary[-train]-pred)^2)
+}
+plot(sqrt(error),xlab="models",ylab="RMSE",pch=20,col=2,type='b')
+legend('topleft',legend=c("Validation errors"))
+
+```
+
+```{r}
+predict.regsubsets<-function(object,newdata,id,...){
+      form<- as.formula(object$call[[2]])
+      test.mat<-model.matrix(form, newdata)
+      coefi<-coef(object,id=id)
+      return(test.mat[,names(coefi)]%*%coefi)
+}
+
+```
+
+Model selection by cross-validation
+===================================
+Here we do 10-fold cross-validation.
+
+```{r}
+set.seed(11)
+fold=sample(rep(1:10,length=nrow(Hitters)))
+cv.error10<-matrix(NA,10,19)
+for(k in 1:10){
+      reg.fit<-regsubsets(Salary~.,data=Hitters[fold!=k,],nvmax=19,method = "forward")
+      
+      for(i in 1:19){
+        pred=predict.regsubsets(reg.fit,Hitters[fold==k,],id=i)
+        cv.error10[k,i]=mean((pred-Salary[fold==k])^2)
+      }
+  
+}
+
+rmse.cv<-sqrt(apply(cv.error10,2,mean))
+plot(rmse.cv,pch=19,type = "b")
+
+```
+
+Ridge Regression and Lasso
+==========================
+```{r}
+library(glmnet)
+
+x=model.matrix(Salary~. -1, data=Hitters)
+y=Salary
+```
+Now we fit the ridge regression by setting the alph=0
+
+```{r}
+fit.ridge<-glmnet(x,y,alpha=0)
+summary(fit.ridge)
+plot(fit.ridge,xvar="lambda",label = T)
+#Cross-validation
+ridge.cv<-cv.glmnet(x,y,alpha=0)
+plot(ridge.cv)    #helps in model selection
+coef(ridge.cv)
+
+```
+
+Now we do the Lasso regression
+```{r}
+lasso.fit<-glmnet(x,y)
+plot(lasso.fit,xvar="dev",label=T)   #xvar=lambda,norm,dev
+cv.lasso<-cv.glmnet(x,y)
+plot(cv.lasso)      #helps in model selection
+#crossvalidation
+coef(cv.lasso)
+```
+
+Now we split the data set into train and test set, fit and predict
+
+```{r}
+lasso.tr<-glmnet(x[train,],y[train])
+lasso.tr
+pred<-predict(lasso.tr,x[-train,])  #making prediction
+rmse<-sqrt(apply((pred-y[-train])^2,2,mean))    #calculating root MSE
+plot(log(lasso.tr$lambda),rmse)   #plotting rmse against log(lambda)
+best.lambda<-lasso.tr$lambda[order(rmse)[1]]
+best.lambda
+coef(lasso.tr,best.lambda)    #coefficient associated to this lambda value
+```
