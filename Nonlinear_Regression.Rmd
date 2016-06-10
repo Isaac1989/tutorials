@@ -1,0 +1,138 @@
+---
+title: "Nonlinear models"
+author: "Isaac Oduro"
+date: "June 10, 2016"
+output: html_document
+---
+Nonlinear models
+================
+Exploring some nonlinear models
+
+```{r}
+library(ISLR)
+data(Wage)
+summary(Wage)
+attach(Wage)
+
+```
+Polynomial Regression
+---------------------
+```{r}
+poly.fit<-lm(wage~poly(age,4),data=Wage)
+summary(poly.fit)
+
+#Ploting of the diagnostics
+dev.off()
+par(mfrow=c(2,2))
+plot(poly.fit)    #we are not interested in the coefficients
+
+```
+We try to plot the function and investigate its standard error
+
+```{r}
+age.grid=seq(min(age),max(age))
+pred=predict(poly.fit,list(age=age.grid),se.fit=T)
+#Standard error bands or confidence interval per estimates
+conf.interval<-cbind(pred$fit+2*pred$se.fit,pred$fit-2*pred$se)
+
+#plot data
+plot(age,wage,col="darkgray")
+lines(age.grid,pred$fit,lwd=3,col="blue")
+# ploting data in matrix "conf.interval"
+matlines(age.grid,conf.interval,col="red",lty = 2)
+
+```
+TESTING FOR BETTER MODEL WHICH ARE NESTED
+--------------------------------------------
+Testing to see which polynomial model best fits our data, we use 'anova()' function in R
+
+```{r}
+fit1<-lm(wage~education,data=Wage)
+fit2<- lm(wage~education+age, data = Wage)
+fit3<- lm(wage~ education + poly(age,2),data = Wage)
+fit4<- lm(wage~ education + poly(age,3),data=Wage)
+anova(fit1,fit2,fit3,fit4)
+
+```
+
+Fitting logistic regression from wage response variable
+---------------------------------------------------------
+Here we encode the wage response variable into a binary sequence and the apply logistic fit. This logistic fit has its log odds as a polynomial regression.
+We code big earners (Wage>250) as 1
+
+```{r}
+log.fit<-glm(I(wage>250)~poly(age,3),data=Wage,family="binomial")
+pred<-  predict(log.fit,newdata=list(age=age.grid),se.fit=T)
+#creating standard error bandwidth or confidence interval
+se.band=pred$fit + cbind(fit=0,lower=-2*pred$se.fit,upper=2*pred$se.fit)
+
+
+```
+
+The predict function applied to logistic regression object in R gives us the logit scale. we are interested in the probability scale. That is
+
+$$P(Y=1|X)=\frac{e^{\beta}}{1+e^{\beta}}$$
+
+```{r}
+prob.band=exp(se.band)/(1+exp(se.band))
+
+matplot(age.grid,prob.band,lwd=c(2,1,1), type='l',ylim=c(0,0.1),col="blue",lty=c(1,2,2))
+
+#Adding the data point to the plot    
+points(jitter(age),I(wage>250)/10,pch="|",cex=0.5)
+```
+
+Splines
+================================
+This involves chopping the predictors into bins and fitting each bin separately with the same of different models such as poly regression. We can also use the basic function to design a model and the use the least squares to fit it. Note that splines makes continuous diferential polynomials to avoid the discontinuity problems associated with the regular poly regressions. We also have the Smooth splines which fit the data using the ridge regression ideas which leads to the natural splines.
+
+Cubic splines
+---------------
+```{r}
+library(splines)
+sp.fit<-lm(wage~bs(age,knots = c(25,40,60)),data=Wage)
+plot(age,wage,col="darkgray")
+
+lines(age.grid,predict(sp.fit,newdata = list(age=age.grid)),col='green',lwd=3)
+abline(v=c(25,40,60),col="red")
+```
+
+## Smooth splines
+
+```{r}
+sms.fit<-smooth.spline(age,wage,df=16)   # "df" is to regulate the flexibility
+lines(sms.fit,col="purple",lwd=3)
+
+```
+Using cross-validation to tune the "lambda" parameter
+
+```{r}
+smscv.fit<-smooth.spline(age,wage,cv=T)
+lines(smscv.fit,col="red",lwd=3)
+smscv.fit
+```
+
+## General Additive models
+
+```{r}
+library(gam)
+fit.gam<-gam(wage ~ s(age,df=4)+s(year,df=4)+education,data=Wage)
+summary(fit.gam)
+dev.off()
+par(mfrow=c(1,4))
+plot(fit.gam,se=T)
+```
+For logistic regression
+```{r}
+fit.gam1<-gam(I(wage>250)~s(age,df=4)+s(year,df=4)+education,data=Wage,family = "binomial")
+summary(fit.gam1)
+plot(fit.gam1)
+```
+Fitting a NATURAL SPLINE
+-------------------------
+```{r}
+nspline.fit<-lm(wage~ ns(age,df=4)+ns(year,df=4)+education,data=Wage)
+par(mfrow=c(1,3))
+plot.gam(nspline.fit,se=T)
+
+```
