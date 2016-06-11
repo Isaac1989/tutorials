@@ -1,0 +1,114 @@
+# Decision tree models
+
+```{r}
+library(ISLR)
+library(tree)
+data("Carseats")
+attach(Carseats)
+
+```
+We make a binary response out of the sale variable
+```{r}
+hist(Sales)
+High<-ifelse(Sales>8,"Yes","No")
+Carseats<-data.frame(Carseats,High)
+
+```
+```{r}
+tree.carseats=tree(High ~ .-Sales,data = Carseats)
+#tree.carseats                 ##printing details about tree
+plot(tree.carseats)
+text(tree.carseats,pretty = 0)
+```
+Now split our observation into training and test observation. Fit the traing set and use the test for prediction
+
+```{r}
+set.seed(1011)
+train=sample(nrow(Carseats)[1],250)
+tree.carseats<-tree(High~. -Sales,data=Carseats,subset = train)
+
+plot(tree.carseats);text(tree.carseats,pretty=0)
+
+tree.predict<-predict(tree.carseats,Carseats[-train,],type="class")
+
+with(Carseats[-train,],table(High,tree.predict))
+
+```
+Now we use cross validation to prune the tree.
+The idea is to regulate the $\alpha$ parameter to prune the bushy tree
+
+```{r}
+cv.carseats<-cv.tree(tree.carseats,FUN=prune.misclass)
+cv.careats
+plot(cv.carseats)
+prune.carseats<- prune.misclass(tree.carseats,best=13)
+plot(prune.carseats);text(prune.carseats,pretty=0)
+
+#predict using the pruned tree
+prune.predict<-predict(prune.carseats,Carseats[-train,],type='class')
+
+with(Carseats[-train,],table(High,prune.predict))
+
+```
+
+RANDOM FOREST AND BOOSTING
+==========================
+
+RANDOM FOREST
+------------------------
+```{r}
+set.seed(2)
+library(MASS)
+library(randomForest)
+data("Boston")
+attach(Boston)
+```
+```{r}
+train<-sample(nrow(Boston),300)
+rf.boston<-randomForest(medv~.,data=Boston,subset = train)
+
+summary(rf.boston)
+rf.boston
+plot(rf.boston)
+
+```
+Random forest uses a specific amount of the features,"mtry" for each split. We can tune this value to obtain the best parameter
+
+```{r}
+oob.errr=rep(0,13)
+mse.error=rep(0,13)
+for(mtry in 1:13){
+  fit<-randomForest(medv~., data = Boston[train,],mtry=mtry,ntree=400)
+  oob.errr[mtry]=fit$mse[400]
+  pred<-predict(fit,Boston[-train,])
+  mse.error[mtry]<-with(Boston[-train,],mean((pred-medv)^2))
+  
+  cat(mtry, " ")
+  }
+
+matplot(1:13,cbind(oob.errr,mse.error),col=c("blue","red"),type = "b",pch=19)
+```
+BOOSTING
+--------------
+
+```{r}
+require(gbm)
+gbm.boston=gbm(medv~.,data = Boston[train,],n.trees = 10000, shrinkage = 0.01, interaction.depth = 4,distribution = 'gaussian')
+
+summary(gbm.boston)     #important variables
+#partial dependence plot
+
+plot(gbm.boston, i='lstat')
+plot(gbm.boston, i = 'rm')
+```
+
+Making predictions
+
+```{r}
+n.trees=seq(100,10000, by=100)
+predmat<-predict(gbm.boston,Boston[-train,],n.trees = n.trees)
+prederr=with(Boston[-train,],apply((medv-predmat)^2,2,mean))
+
+plot(n.trees,prederr,col=3,pch=19,type = 'b')
+abline(h=min(mse.error),col=2)
+```
